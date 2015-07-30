@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"sort"
@@ -57,26 +58,63 @@ func Token(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		fmt.Println("equal...")
 		fmt.Fprintf(w, "%s", echostr)
 	} else {
-		fmt.Fprintf(w, "%s", "not validate")
+		fmt.Printf("%s", "not validate")
+		fmt.Fprintf(w, "success")
 	}
 }
 
 func GetIPs(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	token, found := cacheServer.Get(key_access_token)
 	if !found {
-		fmt.Fprintf(w, "not get access_token from cache.")
+		fmt.Printf("not get access_token from cache.")
+		fmt.Fprintf(w, "success")
 		return
 	}
 	switch token.(type) {
 	case string:
 		ips, err := wapi.GetWeixinServerIP(token.(string))
 		if err != nil {
-			fmt.Fprintf(w, "get weixin server ip err. %s", err.Error())
+			log.Printf("get weixin server ip err. %s", err.Error())
+			fmt.Fprintf(w, "success")
 			return
 		}
-		fmt.Fprintf(w, "get weixin server ip : %s", ips)
+		fmt.Fprintf(w, "get weixin server ip : %s", ips.Ip_list)
 	default:
-		fmt.Fprintf(w, "access_token from cache is not type string.")
+		fmt.Printf("access_token from cache is not type string.")
+		fmt.Fprintf(w, "success")
+	}
+}
+
+func TextMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	fmt.Println("receive message...")
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("read req error:%s\n", err.Error())
+		fmt.Fprintf(w, "success")
+		return
+	}
+	msg, err := wapi.GetTextRequestBody(body)
+	if err != nil {
+		log.Printf("format message error:%s\n", err.Error())
+		fmt.Fprintf(w, "success")
+		return
+	}
+	_, found := cacheServer.Get(strconv.Itoa(msg.MsgId))
+	if !found {
+		cacheServer.Add(strconv.Itoa(msg.MsgId), 1, 30*time.Second)
+		defer cacheServer.Delete(strconv.Itoa(msg.MsgId))
+		// 回复消息
+		content, err := wapi.GetTextResponseBody(msg)
+		if err != nil {
+			log.Printf("get send message error:%s\n", err.Error())
+			fmt.Fprintf(w, "success")
+			return
+		}
+		fmt.Println(string(content))
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprintf(w, string(content))
+	} else {
+		fmt.Printf("same msgId...")
 	}
 }
 
@@ -98,8 +136,7 @@ func main() {
 	router.GET("/", Index)
 	router.GET("/token", Token)
 	router.GET("/test/getips", GetIPs)
-
-	router.NotFound = http.FileServer(http.Dir("../../")).ServeHTTP
+	router.POST("/token", TextMessage)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
