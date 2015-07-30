@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	//"github.com/bitly/go-simplejson"
 )
 
 const (
