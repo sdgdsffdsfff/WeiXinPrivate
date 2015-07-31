@@ -114,7 +114,7 @@ func TextMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 			if util.IsPre(msg.Content, []string{"菜单", "M"}) {
 				msg.Content = `欢迎来到 [私人订制 Ryan_Katee] 
 				命令菜单:
-				1. "聊天" 或 "chat" + 内容 可以聊天哟，注意命令可有一个空格或者逗号。
+				1. "聊天" 或 "chat" + 内容 可以聊天哟，注意[命令]后可有一个空格或者逗号。
 				例: 聊天, 你好 或者 chat hello
 				[powerd by 图灵机器人 http://www.tuling123.com/]
 				2. asd [敬请期待]
