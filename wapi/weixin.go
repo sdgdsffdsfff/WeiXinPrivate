@@ -16,7 +16,7 @@ const (
 	appsecret         = "e0c95308a69c57355064aaf8de85c59d"
 	access_token_url  = "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=APPID&secret=APPSECRET"
 	server_ips_url    = "https://api.weixin.qq.com/cgi-bin/getcallbackip?access_token=ACCESS_TOKEN"
-	message_type_text = "text"
+	Message_type_text = "text"
 )
 
 // {"errcode":40013,"errmsg":"invalid appid"}
@@ -160,25 +160,11 @@ func GetTextRequestBody(body []byte) (*TextRequestBody, error) {
 }
 
 func GetTextResponseBody(text *TextRequestBody) ([]byte, error) {
-	content := `sorry...
-		回复: "菜单"或"M" 可查看命令菜单`
-	if text != nil {
-		if text.MsgType == message_type_text {
-			if text.Content == "菜单" || text.Content == "M" {
-				content = `欢迎来到 [私人订制 Ryan_Katee] 
-				命令菜单:
-				1. asd [敬请期待]
-				2. asd [敬请期待]
-				`
-			}
-		}
-	}
-
 	respMsg := &TextResponseBody{}
 	respMsg.FromUserName = value2CDATA(text.ToUserName)
 	respMsg.ToUserName = value2CDATA(text.FromUserName)
 	respMsg.MsgType = value2CDATA(text.MsgType)
 	respMsg.CreateTime = time.Duration(time.Now().Unix())
-	respMsg.Content = value2CDATA(content)
+	respMsg.Content = value2CDATA(text.Content)
 	return xml.Marshal(&respMsg)
 }

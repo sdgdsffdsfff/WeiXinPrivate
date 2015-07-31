@@ -5,12 +5,14 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"runtime"
 	"sort"
 	"strconv"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
 
+	"./bapi"
 	"./cache"
 	"./util"
 	"./wapi"
@@ -103,22 +105,58 @@ func TextMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	if !found {
 		cacheServer.Add(strconv.Itoa(msg.MsgId), 1, 30*time.Second)
 		defer cacheServer.Delete(strconv.Itoa(msg.MsgId))
+
+		// 文本消息回复逻辑
+		content := `sorry...
+		重复上次命令 或者
+		回复: "菜单" 或 "M" 可查看命令菜单`
+		if msg.MsgType == wapi.Message_type_text {
+			if util.IsPre(msg.Content, []string{"菜单", "M"}) {
+				msg.Content = `欢迎来到 [私人订制 Ryan_Katee] 
+				命令菜单:
+				1. "聊天" 或 "chat" + 内容 可以聊天哟，注意命令可有一个空格或者逗号。
+				例: 聊天, 你好 或者 chat hello
+				[powerd by 图灵机器人 http://www.tuling123.com/]
+				2. asd [敬请期待]
+				`
+			} else if util.IsPre(msg.Content, []string{"聊天", "chat"}) {
+				info := util.Replace(msg.Content, []string{"聊天", "chat", " ", ",", "，"}, "")
+				cm, err := bapi.Chat(info)
+				if err != nil {
+					log.Printf("chat tuning error. %s\n", err.Error())
+					msg.Content = "对不起,聊天功能故障..."
+				} else {
+					log.Printf("chat return code: %d text: %s\n", cm.Code, cm.Text)
+					msg.Content = cm.Text
+				}
+			} else {
+				msg.Content = content
+			}
+		} else {
+			msg.Content = content
+		}
+
 		// 回复消息
-		content, err := wapi.GetTextResponseBody(msg)
+		reply, err := wapi.GetTextResponseBody(msg)
 		if err != nil {
 			log.Printf("get send message error:%s\n", err.Error())
 			fmt.Fprintf(w, "success")
 			return
 		}
-		fmt.Println(string(content))
+		fmt.Println(string(reply))
 		w.Header().Set("Content-Type", "text/xml")
-		fmt.Fprintf(w, string(content))
+		fmt.Fprintf(w, string(reply))
 	} else {
 		fmt.Printf("same msgId...")
+		fmt.Fprintf(w, "success")
+		return
 	}
 }
 
 func main() {
+	// 多核设置
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	// 初始化cache
 	cacheServer = &cache.WCache{}
 	cacheServer.InitCache(cache_file, defaultExpiration, cleanupInterval)
