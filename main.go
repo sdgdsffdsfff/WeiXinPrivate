@@ -117,18 +117,54 @@ func TextMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 				1. "聊天" 或 "chat" + 内容 可以聊天哟，注意[命令]后可有一个空格或者逗号。
 				例: 聊天, 你好 或者 chat hello
 				[powerd by 图灵机器人 http://www.tuling123.com/]
-				2. asd [敬请期待]
+				2. "天气" 或 "weather" + 国内城市中文名 查询天气哟，注意[命令]后可有一个空格或者逗号。
+				例: 天气, 重庆 或者 weather 重庆
 				`
 			} else if util.IsPre(msg.Content, []string{"聊天", "chat"}) {
-				info := util.Replace(msg.Content, []string{"聊天", "chat", " ", ",", "，"}, "")
-				cm, err := bapi.Chat(info)
-				if err != nil {
-					log.Printf("chat tuning error. %s\n", err.Error())
-					msg.Content = "对不起,聊天功能故障..."
-				} else {
-					log.Printf("chat return code: %d text: %s\n", cm.Code, cm.Text)
-					msg.Content = cm.Text
-				}
+				msg.Content = FindInCacheThenDo(msg.Content,
+					func(val interface{}) string {
+						switch val.(type) {
+						case string:
+							return val.(string)
+						default:
+							return "found in cache, but parse to type [string] error."
+						}
+					},
+					func() string {
+						info := util.Replace(msg.Content, []string{"聊天", "chat", " ", ",", "，"}, "")
+						cm, err := bapi.Chat(info)
+						if err != nil {
+							log.Printf("chat tuning error. %s\n", err.Error())
+							return "对不起,聊天功能故障..."
+						} else {
+							log.Printf("chat return code: %d text: %s\n", cm.Code, cm.Text)
+							cacheServer.Add(msg.Content, cm.Text, 5*time.Minute)
+							return cm.Text
+						}
+					})
+			} else if util.IsPre(msg.Content, []string{"天气", "weather"}) {
+				msg.Content = FindInCacheThenDo(msg.Content,
+					func(val interface{}) string {
+						switch val.(type) {
+						case string:
+							return val.(string)
+						default:
+							return "found in cache, but parse to type [string] error."
+						}
+					},
+					func() string {
+						cityName := util.Replace(msg.Content, []string{"天气", "weather", " ", ",", "，"}, "")
+						wm, err := bapi.Weather(cityName)
+						if err != nil {
+							log.Printf("chat tuning error. %s\n", err.Error())
+							return "对不起,天气功能故障..."
+						} else {
+							log.Printf("weather return code: %d text: %s\n", wm.ErrNum, wm.ErrMsg)
+							val := wm.ToString()
+							cacheServer.Add(msg.Content, val, 5*time.Minute)
+							return val
+						}
+					})
 			} else {
 				msg.Content = content
 			}
@@ -207,4 +243,19 @@ func GetAccessToken() (string, error) {
 		return token.Access_token, nil
 	}
 	return "", fmt.Errorf("cacheServer is nil.\n")
+}
+
+func FindInCacheThenDo(key string, foundFunc func(value interface{}) string, notFoundFunc func() string) string {
+	if cacheServer != nil {
+		if val, found := cacheServer.Get(key); found {
+			log.Println("found in cache...")
+			return foundFunc(val)
+		} else {
+			log.Println("not found in cache...")
+			return notFoundFunc()
+		}
+	} else {
+		log.Println("cacheServer is nil...")
+		return notFoundFunc()
+	}
 }
