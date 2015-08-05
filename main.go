@@ -26,10 +26,24 @@ const (
 	sleep_time         = 10 * time.Second
 	key_access_token   = "Acess_Token"
 	default_expires_in = "7200"
+	main_menu          = `
+	欢迎来到 [私人订制 Ryan_Katee] 
+	命令菜单:
+	1. "聊天" 或 "chat" + 内容 可以聊天哟!
+	例: 聊天, 你好 或者 chat hello
+	[powerd by 图灵机器人 http://www.tuling123.com/]
+	2. "天气" 或 "weather" + 国内城市中文名 查询天气哟!
+	例: 天气, 重庆 或者 weather 重庆
+	3. "热门" 或者 "hot" 查看最新热门信息
+	[powerd by 天行数据 http://api.huceo.com/]
+
+	注意[命令]后可有一个空格或者逗号
+	`
 )
 
 var (
 	cacheServer *cache.WCache
+	users       *wapi.UserList
 )
 
 func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -87,106 +101,106 @@ func GetIPs(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 }
 
-func TextMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func HandleMessage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	fmt.Println("receive message...")
+
+	reply := []byte("sorry...")
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("read req error:%s\n", err.Error())
 		fmt.Fprintf(w, "success")
 		return
 	}
-	msg, err := wapi.GetTextRequestBody(body)
+	msg, err := wapi.GetRequestBody(body)
 	if err != nil {
 		log.Printf("format message error:%s\n", err.Error())
 		fmt.Fprintf(w, "success")
 		return
 	}
-	_, found := cacheServer.Get(strconv.Itoa(msg.MsgId))
-	if !found {
-		cacheServer.Add(strconv.Itoa(msg.MsgId), 1, 30*time.Second)
-		defer cacheServer.Delete(strconv.Itoa(msg.MsgId))
 
-		// 文本消息回复逻辑
-		content := `sorry...
-		重复上次命令 或者
+	// 文本消息回复逻辑
+	content := `sorry...
+		重复上次命令 
+		或者
 		回复: "菜单" 或 "M" 可查看命令菜单`
-		if msg.MsgType == wapi.Message_type_text {
-			if util.IsPre(msg.Content, []string{"菜单", "M"}) {
-				msg.Content = `欢迎来到 [私人订制 Ryan_Katee] 
-				命令菜单:
-				1. "聊天" 或 "chat" + 内容 可以聊天哟，注意[命令]后可有一个空格或者逗号。
-				例: 聊天, 你好 或者 chat hello
-				[powerd by 图灵机器人 http://www.tuling123.com/]
-				2. "天气" 或 "weather" + 国内城市中文名 查询天气哟，注意[命令]后可有一个空格或者逗号。
-				例: 天气, 重庆 或者 weather 重庆
-				`
-			} else if util.IsPre(msg.Content, []string{"聊天", "chat"}) {
-				msg.Content = FindInCacheThenDo(msg.Content,
-					func(val interface{}) string {
-						switch val.(type) {
-						case string:
-							return val.(string)
-						default:
-							return "found in cache, but parse to type [string] error."
-						}
-					},
-					func() string {
-						info := util.Replace(msg.Content, []string{"聊天", "chat", " ", ",", "，"}, "")
-						cm, err := bapi.Chat(info)
-						if err != nil {
-							log.Printf("chat tuning error. %s\n", err.Error())
-							return "对不起,聊天功能故障..."
-						} else {
-							log.Printf("chat return code: %d text: %s\n", cm.Code, cm.Text)
-							cacheServer.Add(msg.Content, cm.Text, 5*time.Minute)
-							return cm.Text
-						}
-					})
-			} else if util.IsPre(msg.Content, []string{"天气", "weather"}) {
-				msg.Content = FindInCacheThenDo(msg.Content,
-					func(val interface{}) string {
-						switch val.(type) {
-						case string:
-							return val.(string)
-						default:
-							return "found in cache, but parse to type [string] error."
-						}
-					},
-					func() string {
-						cityName := util.Replace(msg.Content, []string{"天气", "weather", " ", ",", "，"}, "")
-						wm, err := bapi.Weather(cityName)
-						if err != nil {
-							log.Printf("chat tuning error. %s\n", err.Error())
-							return "对不起,天气功能故障..."
-						} else {
-							log.Printf("weather return code: %d text: %s\n", wm.ErrNum, wm.ErrMsg)
-							val := wm.ToString()
-							cacheServer.Add(msg.Content, val, 5*time.Minute)
-							return val
-						}
-					})
-			} else {
-				msg.Content = content
+	if msg.MsgType == wapi.Message_type_event {
+		key := msg.FromUserName + msg.CreateTime.String()
+		_, found := cacheServer.Get(key)
+		if !found {
+			cacheServer.Add(key, 1, 30*time.Second)
+			defer cacheServer.Delete(key)
+
+			msg.Content = HandleEventMessage(msg.Event, msg.FromUserName)
+
+			// 回复文本消息
+			reply, err = wapi.GetTextResponseBody(msg)
+			if err != nil {
+				log.Printf("get send message error:%s\n", err.Error())
+				fmt.Fprintf(w, "success")
+				return
 			}
 		} else {
-			msg.Content = content
-		}
-
-		// 回复消息
-		reply, err := wapi.GetTextResponseBody(msg)
-		if err != nil {
-			log.Printf("get send message error:%s\n", err.Error())
+			log.Println("same FromUserName + CreateTime...")
 			fmt.Fprintf(w, "success")
 			return
 		}
-		fmt.Println(string(reply))
-		w.Header().Set("Content-Type", "text/xml")
-		fmt.Fprintf(w, string(reply))
-	} else {
-		fmt.Printf("same msgId...")
-		fmt.Fprintf(w, "success")
-		return
+	} else if msg.MsgType == wapi.Message_type_text {
+		key := strconv.Itoa(msg.MsgId)
+		_, found := cacheServer.Get(key)
+		if !found {
+			mode := 1
+			cacheServer.Add(key, 1, 30*time.Second)
+			defer cacheServer.Delete(key)
+
+			if msg.MsgType == wapi.Message_type_text {
+				msg.Content, mode = HandleTextMessage(msg.Content)
+			} else {
+				msg.Content = content
+			}
+
+			if mode == 1 {
+				// 回复文本消息
+				reply, err = wapi.GetTextResponseBody(msg)
+				if err != nil {
+					log.Printf("get send message error:%s\n", err.Error())
+					fmt.Fprintf(w, "success")
+					return
+				}
+			} else if mode == 2 {
+				// 回复图文消息
+				ietms, err := wapi.GetNewsItemBody([]byte(msg.Content))
+				if err != nil {
+					log.Printf("get send message error:%s\n", err.Error())
+					fmt.Fprintf(w, "success")
+					return
+				}
+				reply, err = wapi.GetNewsResponseBody(msg, ietms)
+				if err != nil {
+					log.Printf("get send message error:%s\n", err.Error())
+					fmt.Fprintf(w, "success")
+					return
+				}
+			} else {
+				// 回复文本消息
+				reply, err = wapi.GetTextResponseBody(msg)
+				if err != nil {
+					log.Printf("get send message error:%s\n", err.Error())
+					fmt.Fprintf(w, "success")
+					return
+				}
+			}
+
+		} else {
+			log.Println("same MsgId...")
+			fmt.Fprintf(w, "success")
+			return
+		}
 	}
+
+	fmt.Println(string(reply))
+	w.Header().Set("Content-Type", "text/xml")
+	fmt.Fprintf(w, string(reply))
 }
 
 func main() {
@@ -200,6 +214,18 @@ func main() {
 	cacheServer.DeleteExpired()
 	log.Println("init cache done...")
 
+	// 初始化用户列表
+	users = wapi.NewUserList()
+	if list, found := cacheServer.Get("users"); found {
+		switch list.(type) {
+		case []string:
+			users.Init(list.([]string))
+		}
+	} else {
+		list := []string{}
+		cacheServer.Add("users", list, cache.NoExpiration)
+	}
+
 	access_token, err := GetAccessToken()
 	if err != nil {
 		log.Fatal(err)
@@ -210,7 +236,7 @@ func main() {
 	router.GET("/", Index)
 	router.GET("/token", Token)
 	router.GET("/test/getips", GetIPs)
-	router.POST("/token", TextMessage)
+	router.POST("/token", HandleMessage)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
@@ -257,5 +283,131 @@ func FindInCacheThenDo(key string, foundFunc func(value interface{}) string, not
 	} else {
 		log.Println("cacheServer is nil...")
 		return notFoundFunc()
+	}
+}
+
+// 返回int 表示 回复模式 1:文本模式 2:图文模式
+func HandleTextMessage(content string) (string, int) {
+	if util.IsPre(content, []string{"菜单", "M"}) {
+		return main_menu, 1
+	} else if util.IsPre(content, []string{"聊天", "chat"}) {
+		return FindInCacheThenDo(content,
+			func(val interface{}) string {
+				switch val.(type) {
+				case string:
+					return val.(string)
+				default:
+					return "found in cache, but parse to type [string] error."
+				}
+			},
+			func() string {
+				info := util.Replace(content, []string{"聊天", "chat", " ", ",", "，"}, "")
+				cm, err := bapi.Chat(info)
+				if err != nil {
+					log.Printf("chat tuning error. %s\n", err.Error())
+					return "对不起,聊天功能故障..."
+				} else {
+					log.Printf("chat return code: %d text: %s\n", cm.Code, cm.Text)
+					cacheServer.Add(content, cm.Text, 5*time.Minute)
+					return cm.Text
+				}
+			}), 1
+	} else if util.IsPre(content, []string{"天气", "weather"}) {
+		return FindInCacheThenDo(content,
+			func(val interface{}) string {
+				switch val.(type) {
+				case string:
+					return val.(string)
+				default:
+					return "found in cache, but parse to type [string] error."
+				}
+			},
+			func() string {
+				cityName := util.Replace(content, []string{"天气", "weather", " ", ",", "，"}, "")
+				wm, err := bapi.Weather(cityName)
+				if err != nil {
+					log.Printf("chat tuning error. %s\n", err.Error())
+					return "对不起,天气功能故障..."
+				} else {
+					log.Printf("weather return code: %d text: %s\n", wm.ErrNum, wm.ErrMsg)
+					val := wm.ToString()
+					cacheServer.Add(content, val, 5*time.Minute)
+					return val
+				}
+			}), 1
+	} else if util.IsPre(content, []string{"用户", "user"}) {
+		return FindInCacheThenDo(content,
+			func(val interface{}) string {
+				switch val.(type) {
+				case string:
+					return val.(string)
+				default:
+					return "found in cache, but parse to type [string] error."
+				}
+			},
+			func() string {
+				//message := util.Replace(content, []string{"广播", "send", " ", ",", "，"}, "")
+				if val, found := cacheServer.Get("users"); found {
+					log.Println("found users in cache...")
+					switch val.(type) {
+					case []string:
+						us := val.([]string)
+						var list = strconv.Itoa(len(us))
+						for _, user := range us {
+							list += "\n" + user
+						}
+						return list
+					default:
+						return "no user"
+					}
+				} else {
+					return "no user"
+				}
+			}), 1
+	} else if util.IsPre(content, []string{"热门", "hot"}) {
+		return FindInCacheThenDo(content,
+			func(val interface{}) string {
+				switch val.(type) {
+				case string:
+					return val.(string)
+				default:
+					return "found in cache, but parse to type [string] error."
+				}
+			},
+			func() string {
+				word := util.Replace(content, []string{"热门", "hot", " ", ",", "，"}, "")
+				wm, err := bapi.WxHot(word)
+				if err != nil {
+					log.Printf("chat tuning error. %s\n", err.Error())
+					return "对不起,热门功能故障..."
+				} else {
+					log.Printf("wxhot return code: %d text: %s\n", wm.Code, wm.Msg)
+					val, err := wm.ToString()
+					if err != nil {
+						log.Printf("wxhot format error. %s\n", err.Error())
+						return "对不起,热门功能故障..."
+					}
+					cacheServer.Add(content, string(val), 3*time.Hour)
+					return string(val)
+				}
+			}), 2
+	} else {
+		return content, 1
+	}
+}
+
+func HandleEventMessage(event string, openid string) string {
+	if event == wapi.Message_type_event_sub {
+		if !users.IsExist(openid) {
+			users.Add(openid)
+		}
+		defer cacheServer.Set("users", users.GetAll(), cache.NoExpiration)
+		return main_menu
+	} else if event == wapi.Message_type_event_unsub {
+		users.Remove(openid)
+		defer cacheServer.Set("users", users.GetAll(), cache.NoExpiration)
+		return "success"
+	} else {
+		return "unkown event " + event
 	}
 }

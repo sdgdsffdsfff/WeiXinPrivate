@@ -7,6 +7,11 @@ import (
 	"github.com/pmylund/go-cache"
 )
 
+const (
+	DefaultExpiration = cache.DefaultExpiration
+	NoExpiration      = cache.NoExpiration
+)
+
 type WCache struct {
 	server   *cache.Cache
 	filePath string
