@@ -53,6 +53,7 @@ const (
 //     "msg": "ok"
 // }
 type WxHotMessage struct {
+	M0   WxHotItem `json:"0"`
 	M1   WxHotItem `json:"1"`
 	M2   WxHotItem `json:"2"`
 	M3   WxHotItem `json:"3"`
@@ -62,7 +63,6 @@ type WxHotMessage struct {
 	M7   WxHotItem `json:"7"`
 	M8   WxHotItem `json:"8"`
 	M9   WxHotItem `json:"9"`
-	M10  WxHotItem `json:"10"`
 	Code int       `json:"code"`
 	Msg  string    `json:"msg"`
 }
@@ -78,8 +78,8 @@ func WxHot(word string) (*WxHotMessage, error) {
 	u, _ := url.Parse(wxhot_url)
 	q := u.Query()
 	q.Set("num", strconv.Itoa(wxhot_count))
-	q.Set("rand", strconv.Itoa(wxhot_rand))
-	q.Set("page", strconv.Itoa(wxhot_page))
+	//q.Set("rand", strconv.Itoa(wxhot_rand))
+	//q.Set("page", strconv.Itoa(wxhot_page))
 	if word != "" {
 		q.Set("word", word)
 	}
@@ -116,6 +116,9 @@ func WxHot(word string) (*WxHotMessage, error) {
 
 func (w *WxHotMessage) ToString() ([]byte, error) {
 	arr := []WxHotItem{}
+	if w.M0.Title != "" {
+		arr = append(arr, w.M0)
+	}
 	if w.M1.Title != "" {
 		arr = append(arr, w.M1)
 	}
@@ -142,9 +145,6 @@ func (w *WxHotMessage) ToString() ([]byte, error) {
 	}
 	if w.M9.Title != "" {
 		arr = append(arr, w.M9)
-	}
-	if w.M10.Title != "" {
-		arr = append(arr, w.M10)
 	}
 	return json.Marshal(arr)
 }

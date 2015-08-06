@@ -23,7 +23,7 @@ const (
 	cache_file         = "./db.cache"
 	defaultExpiration  = 60 * time.Minute
 	cleanupInterval    = 10 * time.Second
-	sleep_time         = 10 * time.Second
+	sleep_time         = 60 * time.Second
 	key_access_token   = "Acess_Token"
 	default_expires_in = "7200"
 	main_menu          = `
@@ -271,7 +271,7 @@ func GetAccessToken() (string, error) {
 	return "", fmt.Errorf("cacheServer is nil.\n")
 }
 
-func FindInCacheThenDo(key string, foundFunc func(value interface{}) string, notFoundFunc func() string) string {
+func FindInCacheThenDo(key string, foundFunc func(value interface{}) (string, int), notFoundFunc func() (string, int)) (string, int) {
 	if cacheServer != nil {
 		if val, found := cacheServer.Get(key); found {
 			log.Println("found in cache...")
@@ -292,60 +292,60 @@ func HandleTextMessage(content string) (string, int) {
 		return main_menu, 1
 	} else if util.IsPre(content, []string{"聊天", "chat"}) {
 		return FindInCacheThenDo(content,
-			func(val interface{}) string {
+			func(val interface{}) (string, int) {
 				switch val.(type) {
 				case string:
-					return val.(string)
+					return val.(string), 1
 				default:
-					return "found in cache, but parse to type [string] error."
+					return "found in cache, but parse to type [string] error.", 1
 				}
 			},
-			func() string {
+			func() (string, int) {
 				info := util.Replace(content, []string{"聊天", "chat", " ", ",", "，"}, "")
 				cm, err := bapi.Chat(info)
 				if err != nil {
 					log.Printf("chat tuning error. %s\n", err.Error())
-					return "对不起,聊天功能故障..."
+					return "对不起,聊天功能故障...", 1
 				} else {
 					log.Printf("chat return code: %d text: %s\n", cm.Code, cm.Text)
 					cacheServer.Add(content, cm.Text, 5*time.Minute)
-					return cm.Text
+					return cm.Text, 1
 				}
-			}), 1
+			})
 	} else if util.IsPre(content, []string{"天气", "weather"}) {
 		return FindInCacheThenDo(content,
-			func(val interface{}) string {
+			func(val interface{}) (string, int) {
 				switch val.(type) {
 				case string:
-					return val.(string)
+					return val.(string), 1
 				default:
-					return "found in cache, but parse to type [string] error."
+					return "found in cache, but parse to type [string] error.", 1
 				}
 			},
-			func() string {
+			func() (string, int) {
 				cityName := util.Replace(content, []string{"天气", "weather", " ", ",", "，"}, "")
 				wm, err := bapi.Weather(cityName)
 				if err != nil {
 					log.Printf("chat tuning error. %s\n", err.Error())
-					return "对不起,天气功能故障..."
+					return "对不起,天气功能故障...", 1
 				} else {
 					log.Printf("weather return code: %d text: %s\n", wm.ErrNum, wm.ErrMsg)
 					val := wm.ToString()
 					cacheServer.Add(content, val, 5*time.Minute)
-					return val
+					return val, 1
 				}
-			}), 1
+			})
 	} else if util.IsPre(content, []string{"用户", "user"}) {
 		return FindInCacheThenDo(content,
-			func(val interface{}) string {
+			func(val interface{}) (string, int) {
 				switch val.(type) {
 				case string:
-					return val.(string)
+					return val.(string), 1
 				default:
-					return "found in cache, but parse to type [string] error."
+					return "found in cache, but parse to type [string] error.", 1
 				}
 			},
-			func() string {
+			func() (string, int) {
 				//message := util.Replace(content, []string{"广播", "send", " ", ",", "，"}, "")
 				if val, found := cacheServer.Get("users"); found {
 					log.Println("found users in cache...")
@@ -356,41 +356,47 @@ func HandleTextMessage(content string) (string, int) {
 						for _, user := range us {
 							list += "\n" + user
 						}
-						return list
+						return list, 1
 					default:
-						return "no user"
+						return "no user", 1
 					}
 				} else {
-					return "no user"
+					return "no user", 1
 				}
-			}), 1
+			})
 	} else if util.IsPre(content, []string{"热门", "hot"}) {
 		return FindInCacheThenDo(content,
-			func(val interface{}) string {
+			func(val interface{}) (string, int) {
 				switch val.(type) {
 				case string:
-					return val.(string)
+					return val.(string), 1
 				default:
-					return "found in cache, but parse to type [string] error."
+					return "found in cache, but parse to type [string] error.", 1
 				}
 			},
-			func() string {
+			func() (string, int) {
 				word := util.Replace(content, []string{"热门", "hot", " ", ",", "，"}, "")
 				wm, err := bapi.WxHot(word)
 				if err != nil {
 					log.Printf("chat tuning error. %s\n", err.Error())
-					return "对不起,热门功能故障..."
+					return "对不起,热门功能故障...", 1
 				} else {
 					log.Printf("wxhot return code: %d text: %s\n", wm.Code, wm.Msg)
-					val, err := wm.ToString()
-					if err != nil {
-						log.Printf("wxhot format error. %s\n", err.Error())
-						return "对不起,热门功能故障..."
+					if wm.Code == 200 {
+						val, err := wm.ToString()
+						if err != nil {
+							log.Printf("wxhot format error. %s\n", err.Error())
+							return "对不起,热门功能故障...", 1
+						}
+						cacheServer.Add(content, string(val), 3*time.Hour)
+						return string(val), 2
+					} else {
+						val := wm.Msg
+						cacheServer.Add(content, val, 3*time.Hour)
+						return val, 1
 					}
-					cacheServer.Add(content, string(val), 3*time.Hour)
-					return string(val)
 				}
-			}), 2
+			})
 	} else {
 		return content, 1
 	}
